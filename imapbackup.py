@@ -353,12 +353,18 @@ def get_names(server, compress):
     # Get LIST of all folders
     typ, data = server.list()
     assert(typ == 'OK')
+    if len(data) == 1 and data[0] is None:
+        print ": No folders"
+        return []
     spinner.spin()
 
     names = []
 
     # parse each LIST, find folder name
     for row in data:
+        if row is None:
+            print typ
+            print data
         lst = parse_list(row)
         foldername = lst[2]
         suffix = {'none': '', 'gzip': '.gz', 'bzip2': '.bz2'}[compress]
@@ -387,6 +393,7 @@ def print_usage():
     print " -s HOST --server=HOST         Address of server, port optional, eg. mail.com:143"
     print " -u USER --user=USER             Username to log into server"
     print " -p PASS --pass=PASS             Prompts for password if not specified."
+    print " -P                              Use keyring to store password if available"
     print "\nNOTE: mbox files are created in the current working directory."
     sys.exit(2)
 
@@ -395,7 +402,7 @@ def process_cline():
     """Uses getopt to process command line, returns (config, warnings, errors)"""
     # read command line
     try:
-        short_args = "aynzbek:c:s:u:p:f:"
+        short_args = "aynzbePk:c:s:u:p:f:"
         long_args = ["append-to-mboxes", "yes-overwrite-mboxes", "compress=",
                      "ssl", "keyfile=", "certfile=", "server=", "user=", "pass=", "folders="]
         opts, extraargs = getopt.getopt(sys.argv[1:], short_args, long_args)
@@ -423,6 +430,8 @@ def process_cline():
             config['compress'] = 'gzip'
         elif option == "-b":
             config['compress'] = 'bzip2'
+        elif option == "-P":
+            config['keyring'] = True
         elif option == "--compress":
             if value in ('none', 'gzip', 'bzip2'):
                 config['compress'] = value
@@ -516,6 +525,18 @@ def get_config():
         sys.exit(2)
 
     # prompt for password, if necessary
+    if 'keyring' in config:
+        try:
+            import keyring
+            pwd = keyring.get_password('imapbackup', config['user'])
+            if pwd is None:
+                print "Password not found in keyring."
+                pwd = getpass.getpass()
+                keyring.set_password('imapbackup', config['user'], pwd)
+            config['pass'] = pwd
+        except Exception, e:
+            print e
+
     if 'pass' not in config:
         config['pass'] = getpass.getpass()
 
