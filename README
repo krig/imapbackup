@@ -69,6 +69,10 @@ Python 2.5.  May work on Python 2.4 with minor tweaks.
 
 = Changes =
 
+2013-08-02
+* Added option to use keyring - Kristoffer Grönlund
+  https://pypi.python.org/pypi/keyring/
+* Reformatted the code to please my sense of aesthetics.
 2009-12-12 v1.4c
 * Use hashlib module instead of deprecated sha module - Ronan Sheth
 * Added --folders argument - Giuseppe Scrivano
