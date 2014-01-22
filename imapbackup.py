@@ -141,6 +141,7 @@ def download_messages(server, filename, messages, config):
     spinner = Spinner("Downloading %s new messages to %s" % (len(messages), filename))
     total = biggest = 0
 
+    counter = 0
     # each new message
     for msg_id in messages.keys():
         # This "From" and the terminating newline below delimit messages
@@ -156,7 +157,12 @@ def download_messages(server, filename, messages, config):
         typ, data = server.fetch(messages[msg_id], "RFC822")
         assert('OK' == typ)
         text = data[0][1].strip().replace('\r', '')
-        mbox.write(text)
+        from_re = re.compile(r'^(>\s?)*From\s')
+        for line in text.split('\n'):
+            if from_re.match(line):
+                mbox.write('>')
+            mbox.write(line)
+            mbox.write('\n')
         mbox.write('\n\n')
 
         size = len(text)
@@ -164,7 +170,10 @@ def download_messages(server, filename, messages, config):
         total += size
 
         del data
-        gc.collect()
+        counter += 1
+        if counter > 1000:
+            gc.collect()
+            counter = 0
         spinner.spin()
 
     mbox.close()
