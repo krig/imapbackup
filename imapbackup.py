@@ -110,9 +110,11 @@ BLANKS_RE = re.compile(r'\s+', re.MULTILINE)
 # Constants
 UUID = '19AF1258-1AAF-44EF-9D9A-731079D6FAD7'  # Used to generate Message-Ids
 
+gc_counter = 0
 
 def download_messages(server, filename, messages, config):
     """Download messages from folder and append to mailbox"""
+    global gc_counter
 
     if config['overwrite']:
         if os.path.exists(filename):
@@ -141,7 +143,6 @@ def download_messages(server, filename, messages, config):
     spinner = Spinner("Downloading %s new messages to %s" % (len(messages), filename))
     total = biggest = 0
 
-    counter = 0
     # each new message
     for msg_id in messages.keys():
         # This "From" and the terminating newline below delimit messages
@@ -170,10 +171,10 @@ def download_messages(server, filename, messages, config):
         total += size
 
         del data
-        counter += 1
-        if counter > 1000:
+        gc_counter += 1
+        if gc_counter > 1000:
             gc.collect()
-            counter = 0
+            gc_counter = 0
         spinner.spin()
 
     mbox.close()
