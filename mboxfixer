@@ -3,7 +3,9 @@
 # Try to rescue data contained in the mbox files...
 import os
 import sys
+import re
 import atexit
+import shutil
 import argparse
 import mailbox
 import tempfile
@@ -21,8 +23,12 @@ def cleanup_tempfiles():
     for f in _tempfiles:
         os.remove(f)
 
+from_re = re.compile(r'^(>\s?)*From\s')
+
+
 def suspect(line):
-    return line.startswith('From') and not line.startswith('From nobody') and not line.startswith('From:')
+    return not line.startswith('From nobody') and from_re.match(line)
+
 
 def preprocess_mbox(mbname):
     """
@@ -103,10 +109,12 @@ def run():
         description='Process broken mbox files into an Maildir structure')
     parser.add_argument('-o', '--output', dest='output',
                         help='directory to write output into')
-    parser.add_argument('mbox', nargs='+',
-                        help='mailbox to process as input')
     parser.add_argument('--verify', dest='verify', action='store_true',
                         help='run in verification mode')
+    parser.add_argument('--write-mbox', dest='writembox', action='store_true',
+                        help='write to output folder as mbox, not Maildir')
+    parser.add_argument('mbox', nargs='+',
+                        help='mailbox to process as input')
     args = parser.parse_args()
 
     if not args.output and not args.verify:
@@ -118,7 +126,7 @@ def run():
         os.makedirs(args.output)
 
     dest = None
-    if args.output:
+    if args.output and not args.writembox:
         dest = mailbox.Maildir(args.output)
 
     ret = True
@@ -128,7 +136,10 @@ def run():
         if new_mbox:
             if args.verify:
                 ret = ret and verify_mbox(foldername, new_mbox)
-            if args.output:
+            if args.output and args.writembox:
+                shutil.copyfile(new_mbox, os.path.join(args.output, foldername + '.mbox'))
+                ret = True
+            elif args.output:
                 ret = ret and process_mbox(foldername, new_mbox, dest)
     if not ret:
         sys.exit(1)
