@@ -1,0 +1,85 @@
+#!/usr/bin/env python
+#
+# Try to rescue data contained in the mbox files...
+import os
+import sys
+import atexit
+import argparse
+import mailbox
+import tempfile
+
+_tempfiles = []
+
+
+def mktemp():
+    _, name = tempfile.mkstemp(prefix='mboxfixer')
+    _tempfiles.append(name)
+    return name
+
+
+def cleanup_tempfiles():
+    for f in _tempfiles:
+        os.remove(f)
+
+
+def preprocess_mbox(mbname):
+    """
+    Attempt to repair the given mbox.
+    Tries to fix the From line and discover
+    false From lines.
+    Returns a new mbox file.
+    """
+    output_filename = mktemp()
+    with open(output_filename, 'wb') as sink:
+        with open(mbname, 'rb') as source:
+            for line in source:
+                if line.startswith('From') and not line.startswith('From nobody'):
+                    sink.write('>')
+                sink.write(line)
+    return output_filename
+
+
+def process_mbox(name, source, dest):
+    """
+    Copy messages from the given mbox
+    into the Maildir.
+    """
+    mbox = mailbox.mbox(source)
+    dest.lock()
+    mbox.lock()
+    try:
+        try:
+            folder = dest.get_folder(name)
+        except mailbox.NoSuchMailboxError:
+            folder = dest.add_folder(name)
+        print "Writing %s/" % (name)
+        for message in mbox:
+            folder.add(message)
+    finally:
+        mbox.unlock()
+        dest.unlock()
+
+
+def run():
+    atexit.register(cleanup_tempfiles)
+    parser = argparse.ArgumentParser(
+        description='Process broken mbox files into an Maildir structure')
+    parser.add_argument('-o', '--output', dest='output',
+                        help='directory to write output into')
+    parser.add_argument('mbox', nargs='+',
+                        help='mailbox to process as input')
+    args = parser.parse_args()
+
+    if not os.path.isdir(args.output):
+        os.makedirs(args.output)
+
+    dest = mailbox.Maildir(args.output)
+
+    for mbname in args.mbox:
+        foldername = os.path.splitext(os.path.basename(mbname))[0]
+        new_mbox = preprocess_mbox(mbname)
+        if new_mbox:
+            process_mbox(foldername, new_mbox, dest)
+
+if __name__ == "__main__":
+    run()
