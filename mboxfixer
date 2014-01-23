@@ -9,6 +9,7 @@ import shutil
 import argparse
 import mailbox
 import tempfile
+import hashlib
 
 _tempfiles = []
 
@@ -28,6 +29,15 @@ from_re = re.compile(r'^(>\s?)*From\s')
 
 def suspect(line):
     return not line.startswith('From nobody') and from_re.match(line)
+
+
+def begin_op(msg):
+    sys.stdout.write("%s..." % (msg))
+    sys.stdout.flush()
+
+
+def complete_op(result):
+    sys.stdout.write("%s\n" % (result))
 
 
 def preprocess_mbox(mbname):
@@ -54,21 +64,25 @@ def verify_mbox(name, mbfile):
     in this mbox
     """
     ok = True
-    sys.stdout.write("%s..." % (name))
-    sys.stdout.flush()
+    begin_op(name)
     mbox = mailbox.mbox(mbfile)
     mbox.lock()
     for i, message in enumerate(mbox):
         mid = message.get('message-id')
         if not mid:
+            complete_op('FAIL')
             ok = False
-            sys.stdout.write("FAIL\n")
             print "%03d: %s" % (i, message.keys())
     if ok:
-        sys.stdout.write("OK\n")
+        complete_op('OK')
     mbox.unlock()
     mbox.close()
     return ok
+
+
+def digest(msg):
+    ret = "sha1:" + hashlib.sha1(msg.as_string()).hexdigest()
+    return ret
 
 
 def process_mbox(name, source, dest):
@@ -83,21 +97,35 @@ def process_mbox(name, source, dest):
     try:
         try:
             folder = dest.get_folder(name)
-            print "Checking %s/" % (name)
+            begin_op("Checking %s" % (name))
             for message in folder:
                 mid = message.get('message-id')
                 if mid:
                     existing.add(mid)
-            print "Updating %s/" % (name)
+                else:
+                    existing.add(digest(message))
+            complete_op("OK")
         except mailbox.NoSuchMailboxError:
+            begin_op("Creating %s/" % (name))
             folder = dest.add_folder(name)
-            print "Creating %s/" % (name)
+            complete_op("OK")
+        n = 0
         for message in mbox:
             mid = message.get('message-id')
-            if mid and mid in existing:
-                #print "Skipping %s" % (mid)
-                continue
+            if mid:
+                if mid in existing:
+                    continue
+                #else:
+                #    print message.as_string()
+            else:
+                if digest(message) in existing:
+                    continue
             folder.add(message)
+            n += 1
+        if n != 1:
+            print "%s new messages." % (n)
+        else:
+            print "1 new message."
     finally:
         mbox.unlock()
         dest.unlock()
