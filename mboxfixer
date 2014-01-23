@@ -37,6 +37,7 @@ def preprocess_mbox(mbname):
     false From lines.
     Returns a new mbox file.
     """
+    print "Repairing %s..." % (mbname)
     output_filename = mktemp()
     with open(output_filename, 'wb') as sink:
         with open(mbname, 'rb') as source:
@@ -94,7 +95,7 @@ def process_mbox(name, source, dest):
         for message in mbox:
             mid = message.get('message-id')
             if mid and mid in existing:
-                print "Skipping %s" % (mid)
+                #print "Skipping %s" % (mid)
                 continue
             folder.add(message)
     finally:
@@ -106,11 +107,13 @@ def process_mbox(name, source, dest):
 def run():
     atexit.register(cleanup_tempfiles)
     parser = argparse.ArgumentParser(
-        description='Process broken mbox files into an Maildir structure')
+        description='mbox fix and conversion tool')
     parser.add_argument('-o', '--output', dest='output',
                         help='directory to write output into')
     parser.add_argument('--verify', dest='verify', action='store_true',
-                        help='run in verification mode')
+                        help='Verify integrity of mbox before processing')
+    parser.add_argument('--fix-if-broken', dest='fix', action='store_true',
+                        help='If verification fails, try to fix it (implies --verify)')
     parser.add_argument('--write-mbox', dest='writembox', action='store_true',
                         help='write to output folder as mbox, not Maildir')
     parser.add_argument('mbox', nargs='+',
@@ -132,9 +135,15 @@ def run():
     ret = True
     for mbname in args.mbox:
         foldername = os.path.splitext(os.path.basename(mbname))[0]
-        new_mbox = preprocess_mbox(mbname)
+        if args.fix:
+            if not verify_mbox(foldername, mbname):
+                new_mbox = preprocess_mbox(mbname)
+            else:
+                new_mbox = mbname
+        else:
+            new_mbox = mbname
         if new_mbox:
-            if args.verify:
+            if args.verify and not args.fix:
                 ret = ret and verify_mbox(foldername, new_mbox)
             if args.output and args.writembox:
                 shutil.copyfile(new_mbox, os.path.join(args.output, foldername + '.mbox'))
