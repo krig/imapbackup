@@ -191,6 +191,12 @@ def scan_file(filename, compress, overwrite):
     else:
         assert('bzip2' != compress)
 
+    """Skip Folder That Will Casue Crash with Exchange/Office365"""
+    if filename == 'Contacts.Lync Contacts.mbox':
+        return []
+    if filename == 'Contacts.GAL.mbox':
+        return []
+
     # file doesn't exist
     if not os.path.exists(filename):
         print "File %s: not found" % (filename)
@@ -247,6 +253,15 @@ def scan_folder(server, foldername):
     """Gets IDs of messages in the specified folder, returns id:num dict"""
     messages = {}
     spinner = Spinner("Folder %s" % (foldername))
+	  
+    """Skip Folder That Will Casue Crash with Exchange/Office365"""
+    if foldername == 'Contacts/Lync Contacts':
+        print " Skipping due to Office 365 Incompatibility"
+        return messages
+    if foldername == 'Contacts/GAL':
+        print " Skipping due to Office 365 Incompatibility"
+        return messages
+	 
     try:
         typ, data = server.select(foldername, readonly=True)
         if 'OK' != typ:
