@@ -247,6 +247,15 @@ def scan_folder(server, foldername):
     """Gets IDs of messages in the specified folder, returns id:num dict"""
     messages = {}
     spinner = Spinner("Folder %s" % (foldername))
+	  
+    """Skip Folder That Will Casue Crash with Exchange/Office365"""
+    if foldername == 'Contacts/Lync Contacts':
+        print " Skipping due to Oiffice 365 Incompatibility"
+        return messages
+    if foldername == 'Contacts/GAL':
+        print " Skipping due to O365 Incompatibility"
+        return messages
+	 
     try:
         typ, data = server.select(foldername, readonly=True)
         if 'OK' != typ:
