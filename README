@@ -32,6 +32,8 @@ Usage: imapbackup [OPTIONS] -s HOST -u USERNAME [-p PASSWORD]
  -s HOST --server=HOST     Address of server, port optional, eg. mail.com:143
  -u USER --user=USER       Username to log into server
  -p PASS --pass=PASS       Prompts for password if not specified.
+ -P                        Use keyring to store password if available
+ -m BOX  --mailbox=BOX     Connect to alternate user mailbox (Exchange/Office365)
 
 NOTE: mbox files are created in the current working directory.
 
@@ -64,11 +66,17 @@ $
 
 = Compatibility =
 
-Python 2.5.  May work on Python 2.4 with minor tweaks.
+Python 2.7 (Tested with 2.7.6)
 
 
 = Changes =
 
+2014-06-04
+* Will autodetect Exchange/Office365 Server to skip folders so other servers are not affected if they have the same folder names.
+2014-05-30
+* Python 2.7 Compatable
+2014-05-23
+* Added Exceptions for folders 'Contacts/Lync Contacts' and 'Contacts/GAL' to allow backup from Office 365
 2013-08-02
 * Added option to use keyring - Kristoffer Grönlund
   https://pypi.python.org/pypi/keyring/

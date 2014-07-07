@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 
-"""IMAP Incremental Backup Script  v.1.4c (Dec 12 2009)  found on http://the.taoofmac.com/space/Projects/imapbackup"""
-__version__ = "1.4c"
+"""IMAP Incremental Backup Script   (2014/06/04)  found on http://the.taoofmac.com/space/Projects/imapbackup"""
+__version__ = "2014/06/04"
 __author__ = "Rui Carmo (http://the.taoofmac.com)"
 __copyright__ = "(C) 2006 Rui Carmo. Code under BSD License.\n(C)"
-__contributors__ = "Bob Ippolito, Michael Leonhard, Giuseppe Scrivano <gscrivano@gnu.org>, Ronan Sheth, Brandon Long"
+__contributors__ = "Bob Ippolito, Michael Leonhard, Giuseppe Scrivano <gscrivano@gnu.org>, Ronan Sheth, Brandon Long, Luke Ross"
 
 # = Contributors =
 # Brandon Long (Gmail team): Reminder to use BODY.PEEK instead of BODY
@@ -14,6 +14,7 @@ __contributors__ = "Bob Ippolito, Michael Leonhard, Giuseppe Scrivano <gscrivano
 #                   moved spinner into class, extended recv fix to Windows
 # Bob Ippolito: fix for MemoryError on socket recv, http://python.org/sf/1092502
 # Rui Carmo: original author, up to v1.2e
+# Luke Ross: Added Alternate Mailbox Switch and Skipping Microsoft Folders
 
 # = TODO =
 # - Add proper exception handlers to scanFile() and downloadMessages()
@@ -32,13 +33,7 @@ __contributors__ = "Bob Ippolito, Michael Leonhard, Giuseppe Scrivano <gscrivano
 # - Patch Python's ssl module to do proper checking of certificate chain
 # - Patch Python's ssl module to raise good exceptions
 # - Submit patch of socket._fileobject.read
-# - Improve imaplib module with LIST parsing code, submit patch
-# DONE:
-# v1.3c
-# - Add SSL support
-# - Support host:port
-# - Cleaned up code using PyLint to identify problems
-#   pylint -f html --indent-string="  " --max-line-length=90 imapbackup.py > report.html
+# - Improve imaplib module with LIST parsing code, submit patch 
 import getpass
 import os
 import gc
@@ -53,6 +48,7 @@ import re
 import hashlib
 import gzip
 import bz2
+import ssl
 
 
 class SkipFolderException(Exception):
@@ -116,6 +112,12 @@ def download_messages(server, filename, messages, config):
     """Download messages from folder and append to mailbox"""
     global gc_counter
 
+	# Exchange/Office365 Skip as Nothing to do
+    if filename.startswith('Contacts') and ExchangeS:
+        return
+    if filename.startswith('Calendar') and ExchangeS:
+        return
+
     if config['overwrite']:
         if os.path.exists(filename):
             print "Deleting", filename
@@ -133,7 +135,7 @@ def download_messages(server, filename, messages, config):
         mbox = file(filename, 'ab')
 
     # the folder has already been selected by scanFolder()
-
+	
     # nothing to do
     if not len(messages):
         print "New messages: 0"
@@ -190,11 +192,11 @@ def scan_file(filename, compress, overwrite):
         return []
     else:
         assert('bzip2' != compress)
-
-    """Skip Folder That Will Casue Crash with Exchange/Office365"""
-    if filename == 'Contacts.Lync Contacts.mbox':
+		
+    # Skip Folder That Will Casue Crash with Exchange/Office365
+    if filename.startswith('Contacts') and ExchangeS:
         return []
-    if filename == 'Contacts.GAL.mbox':
+    if filename.startswith('Calendar') and ExchangeS:
         return []
 
     # file doesn't exist
@@ -254,13 +256,15 @@ def scan_folder(server, foldername):
     messages = {}
     spinner = Spinner("Folder %s" % (foldername))
 	  
-    """Skip Folder That Will Casue Crash with Exchange/Office365"""
-    if foldername == 'Contacts/Lync Contacts':
-        print " Skipping due to Office 365 Incompatibility"
-        return messages
-    if foldername == 'Contacts/GAL':
-        print " Skipping due to Office 365 Incompatibility"
-        return messages
+    # Skip Folder That Will Casue Crash with Exchange/Office365
+    if foldername.startswith('Contacts') and ExchangeS:
+	    spinner.stop()
+	    print "\nSkipping due to Office365/Exchange Incompatibility"
+	    return messages
+    if foldername.startswith('Calendar') and ExchangeS:
+	    spinner.stop()
+	    print "\nSkipping due to Office365/Exchange Incompatibility"
+	    return messages
 	 
     try:
         typ, data = server.select(foldername, readonly=True)
@@ -274,6 +278,15 @@ def scan_folder(server, foldername):
             typ, data = server.fetch(num, '(BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)])')
             if 'OK' != typ:
                 raise SkipFolderException("FETCH %s failed: %s" % (num, data))
+
+            #Checking that data[0][1] is subscriptable
+            try:
+                data[0][1]
+            except TypeError:
+                spinner.stop()
+                print "\nNoneType Error detected, breaking loop"
+                break
+            #raise
 
             header = data[0][1].strip()
             # remove newlines inside Message-Id (a dumb Exchange trait)
@@ -405,20 +418,21 @@ def get_names(server, compress):
 def print_usage():
     """Prints usage, exits"""
     print "Usage: imapbackup [OPTIONS] -s HOST -u USERNAME [-p PASSWORD]"
-    print " -a --append-to-mboxes         Append new messages to mbox files. (default)"
-    print " -y --yes-overwrite-mboxes Overwite existing mbox files instead of appending."
-    print " -n --compress=none                Use one plain mbox file for each folder. (default)"
-    print " -z --compress=gzip                Use mbox.gz files.    Appending may be very slow."
+    print " -a --append-to-mboxes           Append new messages to mbox files. (default)"
+    print " -y --yes-overwrite-mboxes       Overwite existing mbox files instead of appending."
+    print " -n --compress=none              Use one plain mbox file for each folder. (default)"
+    print " -z --compress=gzip              Use mbox.gz files.    Appending may be very slow."
     print " -b --compress=bzip2             Use mbox.bz2 files. Appending not supported: use -y."
-    print " -f --=folder                            Specifify which folders use.    Comma separated list."
-    print " -e --ssl                                    Use SSL.    Port defaults to 993."
-    print " -k KEY --key=KEY                    PEM private key file for SSL.    Specify cert, too."
+    print " -f --=folder                    Specifify which folders use.    Comma separated list."
+    print " -e --ssl                        Use SSL.    Port defaults to 993."
+    print " -k KEY --key=KEY                PEM private key file for SSL.    Specify cert, too."
     print " -c CERT --cert=CERT             PEM certificate chain for SSL.    Specify key, too."
-    print "                                                     Python's SSL module doesn't check the cert chain."
-    print " -s HOST --server=HOST         Address of server, port optional, eg. mail.com:143"
+    print "                                     Python's SSL module doesn't check the cert chain."
+    print " -s HOST --server=HOST           Address of server, port optional, eg. mail.com:143"
     print " -u USER --user=USER             Username to log into server"
     print " -p PASS --pass=PASS             Prompts for password if not specified."
     print " -P                              Use keyring to store password if available"
+    print " -m BOX  --mailbox=BOX           Connect to alternate user mailbox (Exchange/Office365)"
     print "\nNOTE: mbox files are created in the current working directory."
     sys.exit(2)
 
@@ -427,9 +441,9 @@ def process_cline():
     """Uses getopt to process command line, returns (config, warnings, errors)"""
     # read command line
     try:
-        short_args = "aynzbePk:c:s:u:p:f:"
+        short_args = "aynzbePk:c:s:u:p:f:m:"
         long_args = ["append-to-mboxes", "yes-overwrite-mboxes", "compress=",
-                     "ssl", "keyfile=", "certfile=", "server=", "user=", "pass=", "folders="]
+                     "ssl", "keyfile=", "certfile=", "server=", "user=", "pass=", "folders=", "mailbox="]
         opts, extraargs = getopt.getopt(sys.argv[1:], short_args, long_args)
     except getopt.GetoptError:
         print_usage()
@@ -476,6 +490,8 @@ def process_cline():
             config['user'] = value
         elif option in ("-p", "--pass"):
             config['pass'] = value
+        elif option in ("-m", "--mailbox"):
+            config['mailbox'] = value
         else:
             errors.append("Unknown option: " + option)
 
@@ -530,6 +546,7 @@ def get_config():
     #     'server': String
     #     'port': Integer
     #     'user': String
+    #     'mailbox': String
     #     'pass': String
     #     'usessl': True or False
     #     'keyfilename': String or None
@@ -593,9 +610,21 @@ def connect_and_login(config):
         else:
             print "Connecting to '%s' TCP port %d" % (config['server'], config['port'])
             server = imaplib.IMAP4(config['server'], config['port'])
-
         print "Logging in as '%s'" % (config['user'])
-        server.login(config['user'], config['pass'])
+		
+        # Report Mailbox thats being Connected 
+        if 'mailbox' in config:
+	    print "Using mailbox '%s'" % (config['mailbox'])			
+		
+        # Manage Office365/Exchange Mailbox Connection
+        if 'mailbox' in config:
+            sep = "/"
+            seq = (config['user'], config['mailbox'])
+            loginm = sep.join(seq)
+            server.login(loginm, config['pass'])
+        else:
+            server.login(config['user'], config['pass'])
+		
     except socket.gaierror, e:
         (err, desc) = e
         print "ERROR: problem looking up server '%s' (%s %s)" % (config['server'], err, desc)
@@ -609,6 +638,35 @@ def connect_and_login(config):
             print "ERROR: could not connect to '%s' (%s)" % (config['server'], e)
 
         sys.exit(4)
+
+    #Check if server is exchange based server byr cheking header
+    global ExchangeS
+    ExchangeS = False
+    MICRO_TCP_IP = config['server']
+    MICRO_TCP_PORT = config['port']
+    MICRO_TEST = socket.socket()
+    MICRO_TEST.connect((MICRO_TCP_IP, MICRO_TCP_PORT))
+    #With SSL and Keyfile
+    if config['usessl'] and 'keyfilename' in config:
+        MICRO_sslSocket = socket.ssl(MICRO_TEST, config['keyfilename'])
+        ExchangeTest = MICRO_sslSocket.read(256)
+        if "Microsoft Exchange" in ExchangeTest:
+            print "Microsoft Exchange Server Detected"
+            ExchangeS = True
+    #With SSL
+    elif config['usessl']:
+        MICRO_sslSocket = socket.ssl(MICRO_TEST)
+        ExchangeTest = MICRO_sslSocket.read(256)
+        if "Microsoft Exchange" in ExchangeTest:
+            print "Microsoft Exchange Server Detected"
+            ExchangeS = True
+    #No SSL
+    else:
+        ExchangeTest = MICRO_TEST.recv(256)
+        if "Microsoft Exchange" in ExchangeTest:
+            print "Microsoft Exchange Server Detected"
+            ExchangeS = True
+    MICRO_TEST.close()
 
     return server
 
@@ -715,12 +773,6 @@ def _fixed_socket_read(self, size=-1):
                 break
             buf_len += n
         return "".join(buffers)
-
-# Platform detection to enable socket patch
-if 'Darwin' in platform.platform() and '2.3.5' == platform.python_version():
-    socket._fileobject.read = _fixed_socket_read
-if 'Windows' in platform.platform():
-    socket._fileobject.read = _fixed_socket_read
 
 if __name__ == '__main__':
     gc.enable()
